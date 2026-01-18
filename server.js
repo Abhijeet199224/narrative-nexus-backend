@@ -56,6 +56,44 @@ app.post('/generate-nexus', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
+// ... existing imports
+app.post('/generate-nexus', async (req, res) => {
+    const { bible, soulLevel, lastContext, storyId } = req.body;
+    const maxTokens = soulLevel > 50 ? 300 : 800;
 
+    try {
+        const response = await axios.post('https://api.anthropic.com/v1/messages', {
+            model: "claude-3-5-sonnet-20241022",
+            max_tokens: maxTokens,
+            // WE MOVE THE BIBLE TO THE SYSTEM PROMPT FOR CACHING
+            system: [
+                {
+                    type: "text",
+                    text: `You are a co-writer using this Lore Codex: ${JSON.stringify(bible)}`,
+                    cache_control: { type: "ephemeral" } // THIS TRIGGERS THE 90% SAVINGS
+                }
+            ],
+            messages: [{ 
+                role: "user", 
+                content: `Continue the story from: "${lastContext}". Interruption Level: ${soulLevel}%` 
+            }]
+        }, {
+            headers: { 
+                'x-api-key': process.env.CLAUDE_KEY, 
+                'anthropic-version': '2023-06-01',
+                'anthropic-beta': 'prompt-caching-2024-07-31', // REQUIRED BETA HEADER
+                'Content-Type': 'application/json' 
+            }
+        });
+
+        const newProse = response.data.content[0].text;
+        // Tracking usage for your logs
+        console.log(`Cache Hits: ${response.data.usage.cache_read_input_tokens}`);
+
+        res.json({ prose: newProse, triggerSoulCheck: soulLevel > 50 });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 const PORT = process.env.PORT || 10000; // Render expects this port
 app.listen(PORT, () => console.log(`🚀 Nexus Brain active on port ${PORT}`));
