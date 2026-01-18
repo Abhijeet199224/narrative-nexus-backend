@@ -10,7 +10,7 @@ app.use(express.json());
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log("✅ Nexus Memory (MongoDB) Connected"))
+  .then(() => console.log("✅ Nexus Memory Connected"))
   .catch(err => console.error("❌ Connection Error:", err));
 
 // Story Schema
@@ -22,78 +22,61 @@ const storySchema = new mongoose.Schema({
 });
 const Story = mongoose.model('Story', storySchema);
 
-// The Main Narrative Nexus Endpoint
+// SINGLE Optimized Endpoint
 app.post('/generate-nexus', async (req, res) => {
     const { bible, soulLevel, lastContext, storyId } = req.body;
 
-    // Logic: Interruption frequency based on Soul-Check Slider
-    const maxTokens = soulLevel > 50 ? 300 : 800; 
-
-    try {
-        const response = await axios.post('https://api.anthropic.com/v1/messages', {
-            model: "claude-3-5-sonnet-20241022",
-            max_tokens: maxTokens,
-            messages: [{ 
-                role: "user", 
-                content: `Using this Lore Codex: ${JSON.stringify(bible)}, continue the story from: "${lastContext}". 
-                If the Soul-Check level is ${soulLevel}%, ensure you stop to ask for emotional input.` 
-            }]
-        }, {
-            headers: { 
-                'x-api-key': process.env.CLAUDE_KEY, 
-                'anthropic-version': '2023-06-01',
-                'Content-Type': 'application/json' 
-            }
-        });
-
-        const newProse = response.data.content[0].text;
-
-        // Auto-save to MongoDB
-        await Story.findByIdAndUpdate(storyId, { lastProse: newProse, updatedAt: Date.now() }, { upsert: true });
-
-        res.json({ prose: newProse, triggerSoulCheck: soulLevel > 50 });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
+    // Safety check: if no storyId is provided, MongoDB will fail
+    if (!storyId) {
+        return res.status(400).json({ error: "storyId is required for auto-save." });
     }
-});
-// ... existing imports
-app.post('/generate-nexus', async (req, res) => {
-    const { bible, soulLevel, lastContext, storyId } = req.body;
+
     const maxTokens = soulLevel > 50 ? 300 : 800;
 
     try {
         const response = await axios.post('https://api.anthropic.com/v1/messages', {
             model: "claude-3-5-sonnet-20241022",
             max_tokens: maxTokens,
-            // WE MOVE THE BIBLE TO THE SYSTEM PROMPT FOR CACHING
             system: [
                 {
                     type: "text",
                     text: `You are a co-writer using this Lore Codex: ${JSON.stringify(bible)}`,
-                    cache_control: { type: "ephemeral" } // THIS TRIGGERS THE 90% SAVINGS
+                    cache_control: { type: "ephemeral" } 
                 }
             ],
             messages: [{ 
                 role: "user", 
-                content: `Continue the story from: "${lastContext}". Interruption Level: ${soulLevel}%` 
+                content: `Continue from: "${lastContext}". Soul-Check Level: ${soulLevel}%` 
             }]
         }, {
             headers: { 
                 'x-api-key': process.env.CLAUDE_KEY, 
                 'anthropic-version': '2023-06-01',
-                'anthropic-beta': 'prompt-caching-2024-07-31', // REQUIRED BETA HEADER
+                'anthropic-beta': 'prompt-caching-2024-07-31', 
                 'Content-Type': 'application/json' 
             }
         });
 
         const newProse = response.data.content[0].text;
-        // Tracking usage for your logs
-        console.log(`Cache Hits: ${response.data.usage.cache_read_input_tokens}`);
 
-        res.json({ prose: newProse, triggerSoulCheck: soulLevel > 50 });
+        // Auto-save & return the NEWEST version of the doc
+        const updatedStory = await Story.findByIdAndUpdate(
+            storyId, 
+            { lastProse: newProse, updatedAt: Date.now() }, 
+            { upsert: true, new: true } 
+        );
+
+        res.json({ 
+            prose: newProse, 
+            triggerSoulCheck: soulLevel > 50,
+            usage: response.data.usage // Good for debugging cache hits
+        });
+
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        console.error("AI Error:", err.response ? err.response.data : err.message);
+        res.status(500).json({ error: "Nexus Brain failed to process." });
     }
 });
-const PORT = process.env.PORT || 10000; // Render expects this port
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`🚀 Nexus Brain active on port ${PORT}`));
