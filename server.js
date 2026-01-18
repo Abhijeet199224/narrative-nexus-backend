@@ -118,7 +118,7 @@ app.post('/generate-nexus', async (req, res) => {
     try {
         // Use Gemini 1.5 Flash (Fast and Free Tier)
         const model = genAI.getGenerativeModel({ 
-            model: "gemini-1.5-flash",
+            model: "gemini-2.5-flash",
             systemInstruction: `You are a co-writer. Use this Lore Codex: ${JSON.stringify(bible)}. 
             Focus on the protagonist Riddhima's growth as she overcomes Kshitij's passive-aggressiveness.`
         });
