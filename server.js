@@ -99,14 +99,16 @@ mongoose.connect(process.env.MONGODB_URI)
   .catch(err => console.error("❌ Connection Error:", err));
 
 // 3. Story Schema
+// Story Schema - We explicitly set _id to String
 const storySchema = new mongoose.Schema({
+    _id: String, // THIS IS THE FIX: tell Mongoose to accept regular strings as IDs
     title: String,
     bible: Object,
     lastProse: String,
     updatedAt: { type: Date, default: Date.now }
-});
-const Story = mongoose.model('Story', storySchema);
+}, { _id: false }); // We disable the auto-generation of ObjectIds
 
+const Story = mongoose.model('Story', storySchema);
 // 4. MAIN ENDPOINT
 app.post('/generate-nexus', async (req, res) => {
     const { bible, soulLevel, lastContext, storyId } = req.body;
@@ -132,10 +134,11 @@ app.post('/generate-nexus', async (req, res) => {
         const newProse = response.text();
 
         // 5. Auto-save to MongoDB
-        await Story.findByIdAndUpdate(
-            storyId, 
+        // Auto-save using your custom string ID
+        await Story.findOneAndUpdate(
+            { _id: storyId }, // Look for this specific string ID
             { lastProse: newProse, updatedAt: Date.now() }, 
-            { upsert: true, new: true } 
+            { upsert: true, new: true } // Create it if it doesn't exist
         );
 
         res.json({ 
